@@ -1,0 +1,224 @@
+{
+  "name": "AI Lead Qualification Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Work With Me",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Name",
+              "fieldType": "text",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Budget",
+              "fieldType": "text",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Message",
+              "fieldType": "textarea",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Form Trigger",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "b7c1e2f4-5a6d-4e8b-9c3a-1d2e3f4a5b6c"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analyze the following submitted lead.\n\nName: {{ $json.Name }}\nBudget: {{ $json.Budget }}\nMessage: {{ $json.Message }}",
+        "hasOutputParser": false,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are an expert business lead qualification agent.\n\nAnalyze the submitted lead using the following scoring criteria.\n\nScoring rules (1-10):\n\n1. Clear and specific request:\n   - Award +2 to +4 points for a clear, detailed, specific business request.\n   - Award fewer points for vague or incomplete requests.\n\n2. Budget:\n   - Award +3 to +4 points for a realistic budget greater than $500.\n   - Award fewer points for smaller but potentially realistic budgets.\n   - A $0 budget or a request for free work should receive a score of 1-3.\n\n3. Timeline and urgency:\n   - Award +1 to +2 points when the lead mentions a specific timeline, deadline, or urgency.\n   - Do not award these points when no timeline is provided.\n\n4. Low-quality leads:\n   - Messages containing only one word, spam, scams, unrealistic requests, or requests for free work should receive a score between 1 and 3.\n   - Do not give high scores to suspicious or irrelevant submissions.\n\nImportant scoring requirements:\n- The final score must always be an integer between 1 and 10.\n- Use reasonable judgment when evaluating leads.\n- Do not invent information that the lead did not provide.\n- Be consistent with the scoring criteria.\n\nOUTPUT FORMAT:\n\nYou MUST return ONLY valid JSON.\n\nNo markdown, no code fences, no explanations, and no additional text.\n\nThe exact output structure must be:\n\n{\n  \"score\": 8,\n  \"reason\": \"The lead has a specific project, a realistic budget, and an urgent timeline.\"\n}\n\nThe score must be a number, not a string.\n\nThe reason must be exactly one short sentence."
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Basic LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-120b",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Groq Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        280,
+        520
+      ],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "const FALLBACK_SCORE = 1;\nconst FALLBACK_REASON = 'The AI response could not be parsed, so a default low score was assigned.';\n\n// Retrieve original form data from the Form Trigger node\nlet formData = {};\ntry {\n  formData = $('Form Trigger').first().json || {};\n} catch (e) {\n  formData = {};\n}\n\nconst name = formData.Name !== undefined && formData.Name !== null ? String(formData.Name) : '';\nconst budget = formData.Budget !== undefined && formData.Budget !== null ? String(formData.Budget) : '';\nconst message = formData.Message !== undefined && formData.Message !== null ? String(formData.Message) : '';\n\n// Read AI output from the Basic LLM Chain\nconst item = $input.first();\nlet raw = '';\nif (item && item.json) {\n  raw = item.json.text !== undefined ? item.json.text : (item.json.output !== undefined ? item.json.output : (item.json.response !== undefined ? item.json.response : ''));\n}\n\nlet score = FALLBACK_SCORE;\nlet reason = FALLBACK_REASON;\n\ntry {\n  let parsed;\n  if (raw && typeof raw === 'object') {\n    parsed = raw;\n  } else {\n    let cleaned = String(raw || '').trim();\n    // Remove markdown code fences if present\n    cleaned = cleaned.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim();\n    try {\n      parsed = JSON.parse(cleaned);\n    } catch (innerErr) {\n      // Try extracting the first JSON object from the text\n      const match = cleaned.match(/\\{[\\s\\S]*\\}/);\n      if (!match) {\n        throw innerErr;\n      }\n      parsed = JSON.parse(match[0]);\n    }\n  }\n\n  const num = Number(parsed.score);\n  if (Number.isFinite(num)) {\n    score = Math.min(10, Math.max(1, Math.round(num)));\n    reason = typeof parsed.reason === 'string' && parsed.reason.trim() !== ''\n      ? parsed.reason.trim()\n      : 'No reason was provided by the AI.';\n  } else {\n    score = FALLBACK_SCORE;\n    reason = 'The AI returned an invalid score, so a default low score was assigned.';\n  }\n} catch (err) {\n  score = FALLBACK_SCORE;\n  reason = FALLBACK_REASON;\n}\n\nreturn [\n  {\n    json: {\n      score,\n      reason,\n      name,\n      budget,\n      message\n    }\n  }\n];"
+      },
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c5d6e7f8-0005-4000-8000-000000000005",
+              "leftValue": "={{ $json.score }}",
+              "rightValue": 7,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0005-4000-8000-000000000006",
+      "name": "IF",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Hot lead ({{ $json.score }}/10)\n\nName: {{ $json.name }}\nBudget: {{ $json.budget }}\nMessage: {{ $json.message }}\nWhy: {{ $json.reason }}",
+        "additionalFields": {}
+      },
+      "id": "a1b2c3d4-0006-4000-8000-000000000007",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1160,
+        200
+      ],
+      "webhookId": "d9e8f7a6-5b4c-4d3e-8f2a-1b0c9d8e7f6a",
+      "credentials": {}
+    },
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-0007-4000-8000-000000000008",
+      "name": "No Operation, do nothing",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Form Trigger": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "IF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
